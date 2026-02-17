@@ -26,7 +26,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get('8341079933:AAF_QwmChqgTq_6m6Wsq3kGCNcfCiUi_l5M')
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не установлен!")
 
