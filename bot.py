@@ -1,8 +1,9 @@
 # bot.py
 # Telegram-бот для учета заказов пирогов. Использует aiogram для асинхронности, SQLite для БД, APScheduler для напоминаний.
 # Разработан как опытный Python-разработчик: с FSM для состояний, обработкой ошибок, логгированием.
-# Предполагаем, что бот используется только одним пользователем (мамой или тобой) — добавьте ваш Telegram user_id в ADMIN_ID.
-# Для напоминаний: отправляются администратору за 24 часа до доставки.
+# Теперь для мамы: простые сообщения, даты в DD.MM.YYYY HH:MM, команды с русскими подсказками.
+# Админы: несколько пользователей (вы и мама).
+# Для напоминаний: отправляются администраторам за 24 часа до доставки.
 # Прайс-лист фиксированный, но можно расширить.
 # Установка: pip install aiogram apscheduler
 
@@ -26,14 +27,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# BOT_TOKEN = os.environ.get('BOT_TOKEN')          # это для Heroku
-BOT_TOKEN = "8341079933:AAF_QwmChqgTq_6m6Wsq3kGCNcfCiUi_l5M"   # ← твой реальный токен здесь
-
+# Токен бота из переменной окружения (для Heroku)
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN не найден! Проверь код.")
+    raise ValueError("BOT_TOKEN не установлен в переменных окружения!")
 
-# ID администратора (замените на свой Telegram user_id, получите из /start)
-ADMIN_ID = 1911702126  # <-- Замените на реальный ID!
+# ID администраторов (замените на реальные: ваш и мамы. Узнайте через /start в логах)
+ADMIN_IDS = [123456789, 987654321]  # <-- Замените на ваши реальные Telegram ID!
 
 # Прайс-лист
 PRICES = {
@@ -50,6 +50,9 @@ PRICES = {
     "Сёмга": 20000,
     "Восточный": 10000
 }
+
+# Формат дат для ввода/вывода
+DATE_FORMAT = '%d.%m.%Y %H:%M'
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
@@ -126,7 +129,7 @@ def delete_order(order_id: int) -> bool:
 
 def get_upcoming_orders() -> list:
     now = datetime.now()
-    in_24h_start = now + timedelta(hours=23)  # Окно от 23 до 25 часов для напоминания
+    in_24h_start = now + timedelta(hours=23)
     in_24h_end = now + timedelta(hours=25)
     cursor.execute('''
     SELECT o.id, c.name, o.delivery_date, o.pies
@@ -155,7 +158,7 @@ current_pie = ""
 
 # Проверка на админа
 async def is_admin(message: types.Message) -> bool:
-    return message.from_user.id == ADMIN_ID
+    return message.from_user.id in ADMIN_IDS
 
 # Старт и помощь
 @dp.message_handler(commands=['start', 'help'])
@@ -163,9 +166,9 @@ async def start(message: types.Message):
     if not await is_admin(message):
         return
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(KeyboardButton('/add_client'), KeyboardButton('/new_order'))
-    keyboard.add(KeyboardButton('/report'), KeyboardButton('/delete_order'))
-    await message.reply("Привет! Я бот для учета заказов пирогов.\nКоманды:\n/add_client - Добавить клиента\n/new_order - Новый заказ\n/report - Отчет по датам\n/delete_order - Удалить заказ", reply_markup=keyboard)
+    keyboard.add(KeyboardButton('/add_client (Добавить клиента)'), KeyboardButton('/new_order (Новый заказ)'))
+    keyboard.add(KeyboardButton('/report (Отчет)'), KeyboardButton('/delete_order (Удалить заказ)'))
+    await message.reply("Привет! Я помогу вести учет заказов на пироги.\nВот что я умею:\n/add_client (Добавить клиента) - добавить нового клиента\n/new_order (Новый заказ) - создать заказ\n/report (Отчет) - посмотреть заказы за период\n/delete_order (Удалить заказ) - удалить заказ\nЕсли что-то неясно, просто спроси!")
 
 # Добавление клиента
 @dp.message_handler(commands=['add_client'])
@@ -173,22 +176,22 @@ async def add_client_start(message: types.Message):
     if not await is_admin(message):
         return
     await AddClientForm.name.set()
-    await message.reply("Введите имя клиента:")
+    await message.reply("Как зовут клиента?")
 
 @dp.message_handler(state=AddClientForm.name)
 async def add_client_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
     await AddClientForm.phone.set()
-    await message.reply("Введите номер телефона:")
+    await message.reply("Какой номер телефона у клиента?")
 
 @dp.message_handler(state=AddClientForm.phone)
 async def add_client_phone(message: types.Message, state: FSMContext):
     data = await state.get_data()
     name = data['name']
     phone = message.text
-    client_id = add_client(name, phone)
+    add_client(name, phone)
     await state.finish()
-    await message.reply(f"Клиент добавлен: {name} ({phone}), ID: {client_id}")
+    await message.reply(f"Клиент {name} с номером {phone} добавлен!")
 
 # Новый заказ
 @dp.message_handler(commands=['new_order'])
@@ -196,18 +199,18 @@ async def new_order_start(message: types.Message):
     if not await is_admin(message):
         return
     await NewOrderForm.client.set()
-    await message.reply("Введите имя или номер клиента (или 'новый' для добавления):")
+    await message.reply("Введите имя или номер клиента (или напишите 'новый', если клиент новый):")
 
 @dp.message_handler(state=NewOrderForm.client)
 async def new_order_client(message: types.Message, state: FSMContext):
     query = message.text.strip().lower()
     if query == 'новый':
         await NewOrderForm.new_client_name.set()
-        await message.reply("Введите имя нового клиента:")
+        await message.reply("Как зовут нового клиента?")
         return
     clients = find_client_by_name_or_phone(query)
     if not clients:
-        await message.reply("Клиент не найден. Введите 'новый' для добавления.")
+        await message.reply("Клиент не найден. Напишите 'новый', чтобы добавить.")
         return
     if len(clients) > 1:
         keyboard = InlineKeyboardMarkup()
@@ -218,21 +221,21 @@ async def new_order_client(message: types.Message, state: FSMContext):
     # Один клиент
     await state.update_data(client_id=clients[0][0])
     await NewOrderForm.address.set()
-    await message.reply("Введите адрес доставки:")
+    await message.reply("Куда доставить заказ?")
 
 @dp.callback_query_handler(Text(startswith='client_'), state=NewOrderForm.client)
 async def select_client(callback: types.CallbackQuery, state: FSMContext):
     client_id = int(callback.data.split('_')[1])
     await state.update_data(client_id=client_id)
     await NewOrderForm.address.set()
-    await callback.message.reply("Введите адрес доставки:")
+    await callback.message.reply("Куда доставить заказ?")
     await callback.answer()
 
 @dp.message_handler(state=NewOrderForm.new_client_name)
 async def new_client_name(message: types.Message, state: FSMContext):
     await state.update_data(new_client_name=message.text)
     await NewOrderForm.new_client_phone.set()
-    await message.reply("Введите номер телефона нового клиента:")
+    await message.reply("Какой номер телефона у нового клиента?")
 
 @dp.message_handler(state=NewOrderForm.new_client_phone)
 async def new_client_phone(message: types.Message, state: FSMContext):
@@ -242,7 +245,7 @@ async def new_client_phone(message: types.Message, state: FSMContext):
     client_id = add_client(name, phone)
     await state.update_data(client_id=client_id)
     await NewOrderForm.address.set()
-    await message.reply(f"Новый клиент добавлен. Введите адрес доставки:")
+    await message.reply(f"Новый клиент {name} добавлен. Куда доставить заказ?")
 
 @dp.message_handler(state=NewOrderForm.address)
 async def new_order_address(message: types.Message, state: FSMContext):
@@ -251,15 +254,15 @@ async def new_order_address(message: types.Message, state: FSMContext):
     keyboard = InlineKeyboardMarkup(row_width=2)
     for pie in PRICES.keys():
         keyboard.add(InlineKeyboardButton(pie, callback_data=f"pie_{pie}"))
-    keyboard.add(InlineKeyboardButton("Завершить выбор", callback_data="pies_done"))
-    await message.reply("Выберите пироги:", reply_markup=keyboard)
+    keyboard.add(InlineKeyboardButton("Готово с пирогами", callback_data="pies_done"))
+    await message.reply("Какие пироги заказали? Выберите:", reply_markup=keyboard)
 
 @dp.callback_query_handler(Text(startswith='pie_'), state=NewOrderForm.pies)
 async def select_pie(callback: types.CallbackQuery, state: FSMContext):
     global current_pie
     current_pie = callback.data.split('_')[1]
     await NewOrderForm.quantity.set()
-    await callback.message.reply(f"Введите количество для '{current_pie}':")
+    await callback.message.reply(f"Сколько штук '{current_pie}'?")
     await callback.answer()
 
 @dp.message_handler(state=NewOrderForm.quantity)
@@ -269,14 +272,14 @@ async def new_order_quantity(message: types.Message, state: FSMContext):
         if quantity <= 0:
             raise ValueError
     except ValueError:
-        await message.reply("Введите положительное число.")
+        await message.reply("Пожалуйста, введите число больше нуля.")
         return
     data = await state.get_data()
     pies = data['pies']
     pies.append({"name": current_pie, "quantity": quantity})
     await state.update_data(pies=pies)
     await NewOrderForm.pies.set()
-    await message.reply("Пирог добавлен. Выберите следующий или завершите.")
+    await message.reply("Пирог добавлен. Выберите следующий или нажмите 'Готово'.")
 
 @dp.callback_query_handler(Text('pies_done'), state=NewOrderForm.pies)
 async def pies_done(callback: types.CallbackQuery, state: FSMContext):
@@ -286,53 +289,57 @@ async def pies_done(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     await NewOrderForm.delivery_date.set()
-    await callback.message.reply("Введите дату и время доставки (YYYY-MM-DD HH:MM):")
+    await callback.message.reply("Когда доставить? (Формат: ДД.ММ.ГГГГ ЧЧ:ММ, например 18.02.2026 14:00)")
     await callback.answer()
 
 @dp.message_handler(state=NewOrderForm.delivery_date)
 async def new_order_delivery_date(message: types.Message, state: FSMContext):
     try:
-        delivery_date = datetime.strptime(message.text, '%Y-%m-%d %H:%M').isoformat()
+        dt = datetime.strptime(message.text, DATE_FORMAT)
+        delivery_date = dt.isoformat()  # Храним в ISO для БД
     except ValueError:
-        await message.reply("Неверный формат. Пример: 2026-02-18 14:00")
+        await message.reply("Неверный формат даты. Пример: 18.02.2026 14:00")
         return
     data = await state.get_data()
     order_id = add_order(data['client_id'], data['address'], data['pies'], delivery_date)
     await state.finish()
-    pies_str = ', '.join(f"{p['name']} x{p['quantity']}" for p in data['pies'])
-    await message.reply(f"Заказ добавлен! ID: {order_id}\nКлиент: {data['client_id']}\nПироги: {pies_str}\nДоставка: {message.text}")
+    pies_str = ', '.join(f"{p['name']} x {p['quantity']}" for p in data['pies'])
+    await message.reply(f"Заказ создан!\nКлиент: {data['client_id']}\nПироги: {pies_str}\nДоставка: {message.text}\nЕсли нужно удалить, используйте /delete_order и номер заказа {order_id}")
 
 # Отчет
 @dp.message_handler(commands=['report'])
 async def report_start(message: types.Message):
     if not await is_admin(message):
         return
-    await message.reply("Введите период (start_date end_date, пример: 2026-02-01 2026-02-28):")
+    await message.reply("За какой период показать отчет? Введите две даты (ДД.ММ.ГГГГ ДД.ММ.ГГГГ, пример: 01.02.2026 28.02.2026)")
 
 @dp.message_handler(lambda message: len(message.text.split()) == 2)
 async def generate_report(message: types.Message):
     if not await is_admin(message):
         return
     try:
-        start, end = message.text.split()
-        datetime.strptime(start, '%Y-%m-%d')
-        datetime.strptime(end, '%Y-%m-%d')
+        start_str, end_str = message.text.split()
+        start_dt = datetime.strptime(start_str, '%d.%m.%Y')
+        end_dt = datetime.strptime(end_str, '%d.%m.%Y') + timedelta(days=1) - timedelta(seconds=1)  # До конца дня
+        start = start_dt.isoformat()
+        end = end_dt.isoformat()
     except ValueError:
-        await message.reply("Неверный формат дат.")
+        await message.reply("Неверный формат дат. Пример: 01.02.2026 28.02.2026")
         return
     orders = get_orders_by_date(start, end)
     if not orders:
         await message.reply("Нет заказов за этот период.")
         return
-    report = f"Отчет за {start} - {end}:\n"
+    report = f"Отчет за {start_str} - {end_str}:\n"
     total_orders = len(orders)
     total_sum = 0
     for o in orders:
         pies = json.loads(o[4])
-        pies_str = ', '.join(f"{p['name']} x{p['quantity']}" for p in pies)
-        report += f"ID: {o[0]}, Клиент: {o[1]} ({o[2]}), Адрес: {o[3]}, Пироги: {pies_str}, Дата: {o[5]}, Сумма: {o[6]} тг, Статус: {o[7]}\n"
+        pies_str = ', '.join(f"{p['name']} x {p['quantity']}" for p in pies)
+        delivery_date = datetime.fromisoformat(o[5]).strftime(DATE_FORMAT)
+        report += f"Заказ {o[0]}: Клиент {o[1]} ({o[2]}), Адрес: {o[3]}, Пироги: {pies_str}, Доставка: {delivery_date}, Сумма: {o[6]} тенге, Статус: {o[7]}\n\n"
         total_sum += o[6]
-    report += f"\nИтого заказов: {total_orders}, Общая сумма: {total_sum} тг"
+    report += f"Всего заказов: {total_orders}, Общая сумма: {total_sum} тенге"
     await message.reply(report)
 
 # Удаление заказа
@@ -340,7 +347,7 @@ async def generate_report(message: types.Message):
 async def delete_order_start(message: types.Message):
     if not await is_admin(message):
         return
-    await message.reply("Введите ID заказа для удаления:")
+    await message.reply("Какой номер заказа удалить? (Узнайте номер из отчета или сообщения о создании)")
 
 @dp.message_handler(lambda message: message.text.isdigit(), state='*')
 async def process_delete_order(message: types.Message):
@@ -348,18 +355,20 @@ async def process_delete_order(message: types.Message):
         return
     order_id = int(message.text)
     if delete_order(order_id):
-        await message.reply(f"Заказ {order_id} удален.")
+        await message.reply(f"Заказ {order_id} удален успешно.")
     else:
-        await message.reply("Заказ не найден.")
+        await message.reply("Такой заказ не найден. Проверьте номер.")
 
-# Функция напоминаний
+# Функция напоминаний (отправляем всем админам)
 async def send_reminders():
     orders = get_upcoming_orders()
     for o in orders:
         pies = json.loads(o[3])
-        pies_str = ', '.join(f"{p['name']} x{p['quantity']}" for p in pies)
-        reminder = f"Напоминание: Заказ ID {o[0]} для {o[1]} на {o[2]}.\nПироги: {pies_str}"
-        await bot.send_message(ADMIN_ID, reminder)
+        pies_str = ', '.join(f"{p['name']} x {p['quantity']}" for p in pies)
+        delivery_date = datetime.fromisoformat(o[2]).strftime(DATE_FORMAT)
+        reminder = f"Напоминание: Заказ для {o[1]} на {delivery_date}.\nПироги: {pies_str}\nНе забудьте подготовить!"
+        for admin_id in ADMIN_IDS:
+            await bot.send_message(admin_id, reminder)
         # Опционально: обновить статус на 'reminded'
 
 # Запуск scheduler
