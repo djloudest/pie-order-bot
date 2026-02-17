@@ -50,7 +50,7 @@ PRICES = {
 DATE_FORMAT = '%d.%m.%Y %H:%M'
 
 # PostgreSQL настройка
-DATABASE_URL = os.environ.get('postgres://ud0gm7lgk67rb7:pc4aa9be7fc209fc60fecd82e313c667f9289f0f810d0f265f89348180489aae4@c4pml560q9pviv.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com:5432/dbb5s8n2m36qkt')
+DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL не найден! Проверь Heroku Config Vars.")
 
