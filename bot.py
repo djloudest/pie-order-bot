@@ -30,7 +30,7 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не установлен!")
 
-ADMIN_IDS = [123456789, 987654321]  # ← Замени на реальные ID (твой и мамы)
+ADMIN_IDS = [1037463389, 1911702126]  # ← Замени на реальные ID (твой и мамы)
 
 PRICES = {
     "Мясо с тыквой": 9000,
