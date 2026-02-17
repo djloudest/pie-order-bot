@@ -33,7 +33,7 @@ if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не установлен в переменных окружения!")
 
 # ID администраторов (замените на реальные: ваш и мамы. Узнайте через /start в логах)
-ADMIN_IDS = [123456789, 987654321]  # <-- Замените на ваши реальные Telegram ID!
+ADMIN_IDS = [1037463389,1911702126]  # <-- Замените на ваши реальные Telegram ID!
 
 # Прайс-лист
 PRICES = {
@@ -59,15 +59,12 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-# Scheduler для напоминаний
 scheduler = AsyncIOScheduler()
 
-# Подключение к БД
 DB_FILE = 'pie_orders.db'
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 cursor = conn.cursor()
 
-# Создание таблиц, если не существуют
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
