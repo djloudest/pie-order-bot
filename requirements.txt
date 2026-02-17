@@ -1,3 +1,2 @@
 python-telegram-bot==21.9      
-apscheduler==3.10.4            
-sqlite3                        
+apscheduler==3.10.4                                    
